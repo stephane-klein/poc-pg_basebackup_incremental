@@ -1,0 +1,67 @@
+services:
+  postgres1:
+    image: postgres:17
+    restart: unless-stopped
+    ports:
+      - 5432
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    command: >
+      postgres
+      -c wal_level=replica
+      -c summarize_wal=on
+      -c checkpoint_timeout='60s'
+      -c max_wal_size='100MB'
+    volumes:
+      - ./init-streaming-replication.sh:/docker-entrypoint-initdb.d/init-streaming-replication.sh
+      - postgres1:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pg_isready -U $$POSTGRES_USER -h $$(hostname -i)"]
+      interval: 10s
+      start_period: 30s
+
+  postgres2:
+    image: postgres:17
+    restart: no
+    ports:
+      - 5432
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    command: >
+      postgres
+      -c wal_level=replica
+      -c summarize_wal=on
+      -c checkpoint_timeout='60s'
+      -c max_wal_size='100MB'
+    volumes:
+      - ./init-barman.sh:/docker-entrypoint-initdb.d/init-barman.sh
+      - postgres2:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pg_isready -U $$POSTGRES_USER -h $$(hostname -i)"]
+      interval: 10s
+      start_period: 30s
+
+  backup-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_HOST: postgres1
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres2:/var/lib/postgres2/data/
+    depends_on:
+      postgres1:
+        condition: service_healthy
+
+volumes:
+  postgres1:
+     name: ${COMPOSE_PROJECT_NAME}_postgres1
+  postgres2:
+     name: ${COMPOSE_PROJECT_NAME}_postgres2
