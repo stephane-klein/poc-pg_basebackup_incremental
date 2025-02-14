@@ -10,7 +10,7 @@ docker compose up -d postgres1 backup-sidecar --wait
 ./scripts/generate_dummy_rows_in_postgres1.sh 1000
 
 echo "Execute first full backup"
-docker compose exec -T backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_full/ -l backup -P -v --format=tar --compress=client-zstd"
+docker compose exec -T backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_full/ -l backup -P -v --format=tar --compress=client-zstd:level=3"
 
 echo "Restore full backup to postgres2"
 docker compose exec -T backup-sidecar sh <<'EOF'
@@ -47,7 +47,7 @@ docker compose exec -T backup-sidecar sh <<'EOF'
         -v \
         --incremental=/backup/$(ls -1r /backup/ | head -n1)/backup_manifest \
         --format=tar \
-        --compress=client-zstd
+        --compress=client-zstd:level=3
 EOF
 
 echo "Restore backup to postgres2 with pg_combinebackup"
@@ -92,7 +92,7 @@ for i in {1..5}; do
     echo "=== Executing iteration $i/5 ==="
 
     ./scripts/generate_dummy_rows_in_postgres1.sh 1000
-    docker compose exec backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_incr/ -l backup -P -v --incremental=/backup/\$(ls -1r /backup/ | head -n1)/backup_manifest --format=tar --compress=client-zstd"
+    docker compose exec backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_incr/ -l backup -P -v --incremental=/backup/\$(ls -1r /backup/ | head -n1)/backup_manifest --format=tar --compress=client-zstd:level=3"
 done
 
 echo "Restore backup to postgres2 with pg_combinebackup"
