@@ -7,10 +7,22 @@ docker compose down -v
 docker compose up -d postgres1 backup-sidecar --wait
 
 ./scripts/seed.sh
-./scripts/generate_dummy_rows_in_postgres1.sh 1000
+./scripts/generate_dummy_rows_in_postgres1.sh 10000
 
 echo "Execute first full backup"
 docker compose exec -T backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_full/ -l backup -P -v --format=tar --compress=client-zstd:level=3"
+
+echo "Execute pg_dump backup to check the archive size"
+docker compose exec -T backup-sidecar sh <<EOF
+    mkdir -p /dump/
+    pg_dump \
+        -h \${POSTGRES_HOST} \
+        -U \${POSTGRES_USER} \
+        -d \${POSTGRES_DB} \
+        --compress=zstd:level=3 \
+        -Fc \
+        -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
+EOF
 
 echo "Restore full backup to postgres2"
 docker compose exec -T backup-sidecar sh <<'EOF'
@@ -25,6 +37,12 @@ docker compose exec -T backup-sidecar sh <<'EOF'
     ls -lha /var/lib/postgres2/data/
     echo "fin"
 EOF
+
+echo "Size /backup/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /backup/"
+
+echo "Size /dump/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
 
 docker compose up -d postgres2 --wait
 
@@ -48,6 +66,18 @@ docker compose exec -T backup-sidecar sh <<'EOF'
         --incremental=/backup/$(ls -1r /backup/ | head -n1)/backup_manifest \
         --format=tar \
         --compress=client-zstd:level=3
+EOF
+
+echo "Execute pg_dump backup to check the archive size"
+docker compose exec -T backup-sidecar sh <<EOF
+    mkdir -p /dump/
+    pg_dump \
+        -h \${POSTGRES_HOST} \
+        -U \${POSTGRES_USER} \
+        -d \${POSTGRES_DB} \
+        --compress=zstd:level=3 \
+        -Fc \
+        -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
 EOF
 
 echo "Restore backup to postgres2 with pg_combinebackup"
@@ -93,6 +123,19 @@ for i in {1..5}; do
 
     ./scripts/generate_dummy_rows_in_postgres1.sh 1000
     docker compose exec backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_incr/ -l backup -P -v --incremental=/backup/\$(ls -1r /backup/ | head -n1)/backup_manifest --format=tar --compress=client-zstd:level=3"
+
+echo "Execute pg_dump backup to check the archive size"
+docker compose exec -T backup-sidecar sh <<EOF
+    mkdir -p /dump/
+    pg_dump \
+        -h \${POSTGRES_HOST} \
+        -U \${POSTGRES_USER} \
+        -d \${POSTGRES_DB} \
+        --compress=zstd:level=3 \
+        -Fc \
+        -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
+EOF
+
 done
 
 echo "Restore backup to postgres2 with pg_combinebackup"
@@ -127,7 +170,6 @@ docker compose exec -T backup-sidecar sh <<'EOF'
     ls -lha /var/lib/postgres2/data/
 EOF
 
-
 docker compose up -d postgres2 --wait
 
 ./scripts/postgres2-display-dummy-rows.sh
@@ -140,3 +182,6 @@ docker compose exec backup-sidecar sh -c "du -h -d1 /uncompress/"
 
 echo "PGDATA size"
 docker compose exec backup-sidecar sh -c "du -h -d0 /var/lib/postgres2/data/"
+
+echo "Size /dump/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
