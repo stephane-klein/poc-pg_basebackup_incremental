@@ -44,6 +44,7 @@ docker compose exec backup-sidecar sh -c "du -h -d1 /backup/"
 echo "Size /dump/*/ (compressed)"
 docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
 
+./scripts/postgres2-display-tables-size.sh
 docker compose up -d postgres2 --wait
 
 ./scripts/postgres2-display-dummy-rows.sh
