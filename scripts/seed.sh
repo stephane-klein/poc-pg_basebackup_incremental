@@ -21,9 +21,13 @@ BEGIN
     INSERT INTO public.dummy (text, _blob)
     SELECT 
         NOW(),
-        (SELECT string_agg(md5(i::text || random()::text), '')
-         FROM generate_series(1, 256) i)::TEXT -- ~10Ko de données aléatoires
-    FROM GENERATE_SERIES(1, number_rows);
+        (
+            SELECT string_agg(
+                md5(i::text || gs.id::text || random()::text), ''
+            )
+            FROM
+                generate_series(1, 256) i)::TEXT -- ~10Ko 
+    FROM GENERATE_SERIES(1, number_rows) gs(id);
 END;
 \$\$;
 \q

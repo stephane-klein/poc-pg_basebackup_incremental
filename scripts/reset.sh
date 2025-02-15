@@ -6,19 +6,38 @@ cd "$(dirname "$0")/../"
 docker compose down -v
 docker compose up -d postgres1 backup-sidecar --wait
 
+#export NUMBER_OF_LINES_TO_GENERATE=1000 # 8k * 1000 = 8MB
+export NUMBER_OF_LINES_TO_GENERATE=10000 # 8k * 10000 = 80MB
+
 ./scripts/seed.sh
-./scripts/generate_dummy_rows_in_postgres1.sh 10000
+./scripts/generate_dummy_rows_in_postgres1.sh $NUMBER_OF_LINES_TO_GENERATE
 
 echo "Execute first full backup"
-docker compose exec -T backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_full/ -l backup -P -v --format=tar --compress=client-zstd:level=3"
+docker compose exec -T backup-sidecar sh <<'EOF'
+    rm -rf /backup/;
+    export BACKUP_ID="$(date "+%Y%m%d_%H%M%S")_full";
+    pg_basebackup \
+        -U ${POSTGRES_USER} \
+        -h ${POSTGRES_HOST} \
+        -D /backup/${BACKUP_ID}/ \
+        -l backup \
+        -P \
+        -v \
+        --format=tar \
+        --compress=client-zstd:level=3 \
+        --checkpoint=fast
+    cd /backup/${BACKUP_ID}/
+    zstd pg_wal.tar
+    rm pg_wal.tar
+EOF
 
 echo "Execute pg_dump backup to check the archive size"
-docker compose exec -T backup-sidecar sh <<EOF
+docker compose exec -T backup-sidecar sh <<'EOF'
     mkdir -p /dump/
     pg_dump \
-        -h \${POSTGRES_HOST} \
-        -U \${POSTGRES_USER} \
-        -d \${POSTGRES_DB} \
+        -h ${POSTGRES_HOST} \
+        -U ${POSTGRES_USER} \
+        -d ${POSTGRES_DB} \
         --compress=zstd:level=3 \
         -Fc \
         -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
@@ -31,8 +50,8 @@ docker compose exec -T backup-sidecar sh <<'EOF'
     cp -r /backup/$(ls /backup/ -1 | head -n1)/* /var/lib/postgres2/data/
     cd /var/lib/postgres2/data/
     tar -I zstd -xf base.tar.zst
-    tar -xf pg_wal.tar -C pg_wal/
-    rm base.tar.zst pg_wal.tar
+    tar -I zstd -xf pg_wal.tar.zst -C pg_wal/
+    rm base.tar.zst pg_wal.tar.zst
     chown -R 999:999 /var/lib/postgres2/data/
     ls -lha /var/lib/postgres2/data/
     echo "fin"
@@ -44,38 +63,57 @@ docker compose exec backup-sidecar sh -c "du -h -d1 /backup/"
 echo "Size /dump/*/ (compressed)"
 docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
 
-./scripts/postgres2-display-tables-size.sh
+./scripts/postgres1-display-tables-size.sh
+
 docker compose up -d postgres2 --wait
 
 ./scripts/postgres2-display-dummy-rows.sh
+
+# echo "Restore latest dump to postgres2"
+# docker compose exec -T backup-sidecar sh <<'EOF'
+#     LATEST_DUMP=$(ls -1t /dump/*.pgdump | head -n1);
+#
+#     PGPASSWORD=${POSTGRES_PASSWORD} pg_restore \
+#         -h postgres2 \
+#         -U ${POSTGRES_USER} \
+#         -d ${POSTGRES_DB} \
+#         --clean \
+#         --if-exists \
+#         "${LATEST_DUMP}"
+# EOF
 
 docker compose down postgres2
 
 sleep 2
 
-./scripts/generate_dummy_rows_in_postgres1.sh 1000
+./scripts/generate_dummy_rows_in_postgres1.sh $NUMBER_OF_LINES_TO_GENERATE
 
 echo "Execute incremental backup"
 docker compose exec -T backup-sidecar sh <<'EOF'
+    export BACKUP_ID="$(date "+%Y%m%d_%H%M%S")_incr";
     pg_basebackup \
         -U ${POSTGRES_USER} \
         -h ${POSTGRES_HOST} \
-        -D /backup/$(date "+%Y%m%d_%H%M%S")_incr/ \
+        -D /backup/${BACKUP_ID}/ \
         -l backup \
         -P \
         -v \
         --incremental=/backup/$(ls -1r /backup/ | head -n1)/backup_manifest \
         --format=tar \
-        --compress=client-zstd:level=3
+        --compress=client-zstd:level=3 \
+        --checkpoint=fast;
+    cd /backup/${BACKUP_ID}/;
+    zstd pg_wal.tar;
+    rm pg_wal.tar
 EOF
 
 echo "Execute pg_dump backup to check the archive size"
-docker compose exec -T backup-sidecar sh <<EOF
+docker compose exec -T backup-sidecar sh <<'EOF'
     mkdir -p /dump/
     pg_dump \
-        -h \${POSTGRES_HOST} \
-        -U \${POSTGRES_USER} \
-        -d \${POSTGRES_DB} \
+        -h ${POSTGRES_HOST} \
+        -U ${POSTGRES_USER} \
+        -d ${POSTGRES_DB} \
         --compress=zstd:level=3 \
         -Fc \
         -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
@@ -96,7 +134,8 @@ docker compose exec -T backup-sidecar sh <<'EOF'
         
         tar -I zstd -xf base.tar.zst && rm base.tar.zst
         mkdir -p pg_wal
-        tar -xf pg_wal.tar -C pg_wal/ && rm pg_wal.tar
+        tar -I zstd -xf pg_wal.tar.zst -C pg_wal/
+        rm base.tar.zst pg_wal.tar.zst
     done
 
     echo "Size of /backup/*"
@@ -122,16 +161,32 @@ docker compose down postgres2
 for i in {1..5}; do
     echo "=== Executing iteration $i/5 ==="
 
-    ./scripts/generate_dummy_rows_in_postgres1.sh 1000
-    docker compose exec backup-sidecar sh -c "pg_basebackup -U \${POSTGRES_USER} -h \${POSTGRES_HOST} -D /backup/\$(date \"+%Y%m%d_%H%M%S\")_incr/ -l backup -P -v --incremental=/backup/\$(ls -1r /backup/ | head -n1)/backup_manifest --format=tar --compress=client-zstd:level=3"
+    ./scripts/generate_dummy_rows_in_postgres1.sh $NUMBER_OF_LINES_TO_GENERATE
+docker compose exec -T backup-sidecar sh <<'EOF'
+    export BACKUP_ID="$(date "+%Y%m%d_%H%M%S")_incr"
+    pg_basebackup \
+        -U ${POSTGRES_USER} \
+        -h ${POSTGRES_HOST} \
+        -D /backup/${BACKUP_ID}/ \
+        -l backup \
+        -P \
+        -v \
+        --incremental=/backup/$(ls -1r /backup/ | head -n1)/backup_manifest \
+        --format=tar \
+        --compress=client-zstd:level=3 \
+        --checkpoint=fast
+    cd /backup/${BACKUP_ID}/
+    zstd pg_wal.tar
+    rm pg_wal.tar
+EOF
 
 echo "Execute pg_dump backup to check the archive size"
-docker compose exec -T backup-sidecar sh <<EOF
+docker compose exec -T backup-sidecar sh <<'EOF'
     mkdir -p /dump/
     pg_dump \
-        -h \${POSTGRES_HOST} \
-        -U \${POSTGRES_USER} \
-        -d \${POSTGRES_DB} \
+        -h ${POSTGRES_HOST} \
+        -U ${POSTGRES_USER} \
+        -d ${POSTGRES_DB} \
         --compress=zstd:level=3 \
         -Fc \
         -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
@@ -154,7 +209,8 @@ docker compose exec -T backup-sidecar sh <<'EOF'
         
         tar -I zstd -xf base.tar.zst && rm base.tar.zst
         mkdir -p pg_wal
-        tar -xf pg_wal.tar -C pg_wal/ && rm pg_wal.tar
+        tar -I zstd -xf pg_wal.tar.zst -C pg_wal/
+        rm base.tar.zst pg_wal.tar.zst
     done
 
     echo "Size of /backup/*"
@@ -185,4 +241,6 @@ echo "PGDATA size"
 docker compose exec backup-sidecar sh -c "du -h -d0 /var/lib/postgres2/data/"
 
 echo "Size /dump/*/ (compressed)"
-docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
+docker compose exec backup-sidecar sh -c "du -h -d1 /dump/*"
+
+./scripts/postgres1-display-tables-size.sh
