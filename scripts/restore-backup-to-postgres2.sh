@@ -3,32 +3,31 @@ set -e
 
 cd "$(dirname "$0")/../"
 docker compose exec -T backup-sidecar sh <<'EOF'
-    rm -rf /uncompress
-    mkdir -p /uncompress
+    rm -rf /working_directory/uncompress/
+    mkdir -p /working_directory/uncompress/
 
-    for backup_dir in /backup/*/; do
+    for backup_dir in /working_directory/backup/*/; do
         dirname=$(basename "$backup_dir")
         
-        mkdir -p "/uncompress/$dirname"
+        mkdir -p "/working_directory/uncompress/$dirname"
         
-        cp -r "$backup_dir"/* "/uncompress/$dirname/"
-        cd "/uncompress/$dirname"
+        cp -r "$backup_dir"/* "/working_directory/uncompress/$dirname/"
+        cd "/working_directory/uncompress/$dirname"
         
         tar -I zstd -xf base.tar.zst && rm base.tar.zst
         mkdir -p pg_wal
-        tar -I zstd -xf pg_wal.tar.zst -C pg_wal/
-        rm base.tar.zst pg_wal.tar.zst
+        tar -I zstd -xf pg_wal.tar.zst -C pg_wal/ && rm pg_wal.tar.zst
     done
 
-    echo "Size of /backup/*"
-    du -h -d1 /backup/
+    echo "Size of /working_directory/backup/*"
+    du -h -d1 /working_directory/backup/
 
-    echo "Size of /uncompress/*"
-    du -h -d1 /uncompress/
+    echo "Size of /working_directory/uncompress/*"
+    du -h -d1 /working_directory/uncompress/
 
     rm -rf /var/lib/postgres2/data/*
     rm -rf /var/lib/postgres2/data/.* 2>/dev/null
-    pg_combinebackup $(cd /uncompress/ && ls -1 | sort | sed 's#^#/uncompress/#' | tr '\n' ' ') -o /var/lib/postgres2/data/
+    pg_combinebackup $(cd /working_directory/uncompress/ && ls -1 | sort | sed 's#^#/working_directory/uncompress/#' | tr '\n' ' ') -o /var/lib/postgres2/data/
 
     chown -R 999:999 /var/lib/postgres2/data/
     ls -lha /var/lib/postgres2/data/

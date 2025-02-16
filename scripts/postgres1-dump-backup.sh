@@ -4,12 +4,12 @@ set -e
 cd "$(dirname "$0")/../"
 
 docker compose exec -T backup-sidecar sh <<'EOF'
-    mkdir -p /dump/
+    mkdir -p /working_directory/dump/
     pg_dump \
         -h ${POSTGRES_HOST} \
         -U ${POSTGRES_USER} \
         -d ${POSTGRES_DB} \
         --compress=zstd:level=3 \
         -Fc \
-        -f /dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
+        -f /working_directory/dump/$(date '+%Y%m%d_%H%M%S')_dump.pgdump
 EOF

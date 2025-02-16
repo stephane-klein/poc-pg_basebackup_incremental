@@ -6,8 +6,11 @@ cd "$(dirname "$0")/../"
 docker compose down -v
 docker compose up -d postgres1 backup-sidecar --wait
 
-#export NUMBER_OF_LINES_TO_GENERATE=1000 # 8k * 1000 = 8MB
-export NUMBER_OF_LINES_TO_GENERATE=10000 # 8k * 10000 = 80MB
+export NUMBER_OF_LINES_TO_GENERATE=10
+# export NUMBER_OF_LINES_TO_GENERATE=1000 # 8k * 1000 = 8MB
+# export NUMBER_OF_LINES_TO_GENERATE=10000 # 8k * 10000 = 80MB
+
+#./scripts/start-pg_receivewal.sh
 
 ./scripts/seed.sh
 ./scripts/generate_dummy_rows_in_postgres1.sh $NUMBER_OF_LINES_TO_GENERATE
@@ -19,8 +22,6 @@ export NUMBER_OF_LINES_TO_GENERATE=10000 # 8k * 10000 = 80MB
 # \q
 # EOF"
 
-sleep 10
-
 echo "Execute first full backup"
 ./scripts/postgres1-full-backup.sh
 
@@ -28,24 +29,13 @@ echo "Execute pg_dump backup to check the archive size"
 ./scripts/postgres1-dump-backup.sh
 
 echo "Restore full backup to postgres2"
-docker compose exec -T backup-sidecar sh <<'EOF'
-    rm -rf /var/lib/postgres2/data/*
-    rm -rf /var/lib/postgres2/data/.* 2>/dev/null
-    cp -r /backup/$(ls /backup/ -1 | head -n1)/* /var/lib/postgres2/data/
-    cd /var/lib/postgres2/data/
-    tar -I zstd -xf base.tar.zst
-    # tar -I zstd -xf pg_wal.tar.zst -C pg_wal/
-    rm base.tar.zst #pg_wal.tar.zst
-    chown -R 999:999 /var/lib/postgres2/data/
-    ls -lha /var/lib/postgres2/data/
-    echo "fin"
-EOF
+./scripts/restore-backup-to-postgres2.sh
 
-echo "Size /backup/*/ (compressed)"
-docker compose exec backup-sidecar sh -c "du -h -d1 /backup/"
+echo "Size /working_directory/backup/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /working_directory/backup/"
 
-echo "Size /dump/*/ (compressed)"
-docker compose exec backup-sidecar sh -c "du -h -d1 /dump/"
+echo "Size /working_directory/dump/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /working_directory/dump/"
 
 ./scripts/postgres1-display-tables-size.sh
 
@@ -92,8 +82,9 @@ docker compose up -d postgres2 --wait
 
 ./scripts/postgres2-display-dummy-rows.sh
 
+
 docker compose down postgres2
-#
+
 for i in {1..5}; do
     echo "=== Executing iteration $i/5 ==="
 
@@ -108,7 +99,6 @@ for i in {1..5}; do
 
     echo "Execute pg_dump backup to check the archive size"
     ./scripts/postgres1-dump-backup.sh
-
 done
 
 echo "Restore backup to postgres2 with pg_combinebackup"
@@ -118,16 +108,16 @@ docker compose up -d postgres2 --wait
 
 ./scripts/postgres2-display-dummy-rows.sh
 
-echo "Size /backup/*/ (compressed)"
-docker compose exec backup-sidecar sh -c "du -h -d1 /backup/"
+echo "Size /working_directory/backup/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /working_directory/backup/"
 
-echo "Size /uncompress/*/"
-docker compose exec backup-sidecar sh -c "du -h -d1 /uncompress/"
+echo "Size /working_directory/uncompress/*/"
+docker compose exec backup-sidecar sh -c "du -h -d1 /working_directory/uncompress/"
 
 echo "PGDATA size"
 docker compose exec backup-sidecar sh -c "du -h -d0 /var/lib/postgres2/data/"
 
-echo "Size /dump/*/ (compressed)"
-docker compose exec backup-sidecar sh -c "du -h -d1 /dump/*"
+echo "Size /working_directory/dump/*/ (compressed)"
+docker compose exec backup-sidecar sh -c "du -h -d1 /working_directory/dump/*"
 
 ./scripts/postgres1-display-tables-size.sh
