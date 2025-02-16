@@ -3,7 +3,7 @@
 ```sh
 $ mise install
 $ docker compose build
-$ ./scripts/reset.sh
+$ ./scripts/play.sh
 ```
 
 ## Teardown
