@@ -61,21 +61,6 @@ services:
       postgres1:
         condition: service_healthy
 
-  pg_receivewal:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      POSTGRES_HOST: postgres1
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    volumes:
-      - backup:/working_directory/
-    depends_on:
-      postgres1:
-        condition: service_healthy
-
 volumes:
   postgres1:
      name: ${COMPOSE_PROJECT_NAME}_postgres1

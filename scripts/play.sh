@@ -3,8 +3,8 @@ set -e
 
 cd "$(dirname "$0")/../"
 
-docker compose down -v
-docker compose up -d postgres1 backup-sidecar --wait
+# docker compose down -v
+# docker compose up -d postgres1 backup-sidecar --wait
 
 export NUMBER_OF_LINES_TO_GENERATE=10
 # export NUMBER_OF_LINES_TO_GENERATE=1000 # 8k * 1000 = 8MB

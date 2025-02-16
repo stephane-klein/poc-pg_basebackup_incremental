@@ -10,6 +10,9 @@ RUN bash -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg ma
     && apt-get install -y --no-install-recommends \
         postgresql-client-17 \
         zstd \
+        vim \
+        procps \
+        lz4 \
     && ln -sf /usr/lib/postgresql/17/bin/pg_combinebackup /usr/bin/pg_combinebackup \
     && rm -rf /var/lib/apt/lists/*
 
